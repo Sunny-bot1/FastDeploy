@@ -551,11 +551,8 @@ class Sampler(nn.Layer):
 
         greedy_next_tokens = paddle.argmax(probs, axis=-1)
 
-        if (
-            sampling_metadata.top_p_list
-            and not all(x <= 0.00001 for x in sampling_metadata.top_p_list)
-            and sampling_metadata.top_k_list
-            and not all(x <= 0.00001 for x in sampling_metadata.top_k_list)
+        if (sampling_metadata.top_p_list and any(x <= 0.00001 for x in sampling_metadata.top_p_list)) or (
+            sampling_metadata.top_k_list and any(x <= 0.00001 for x in sampling_metadata.top_k_list)
         ):
             _, next_tokens = top_k_top_p_sampling(
                 probs,
@@ -564,13 +561,17 @@ class Sampler(nn.Layer):
                 sampling_metadata.top_k_list,
                 topp_seed=sampling_metadata.seed,
             )
+            next_tokens = next_tokens.flatten()
+            top_p_tensor = paddle.to_tensor(sampling_metadata.top_p_list, dtype="float32", place="cpu")
+            top_k_tensor = paddle.to_tensor(sampling_metadata.top_k_list, dtype="int32", place="cpu")
             next_tokens = paddle.where(
-                sampling_metadata.top_p_list <= 0.00001 and sampling_metadata.top_k_list <= 0.00001,
+                (top_p_tensor <= 0.00001) & (top_k_tensor <= 0.00001),
                 greedy_next_tokens,
                 next_tokens,
-            )
+            ).unsqueeze(-1)
+            print("next_tokens: ", next_tokens)
         else:
-            next_tokens = greedy_next_tokens
+            next_tokens = greedy_next_tokens.unsqueeze(-1)
 
         logprobs_tensors = (
             None if num_logprobs is None else self.gather_logprobs(raw_logprobs, num_logprobs, token_ids=next_tokens)
