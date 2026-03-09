@@ -545,13 +545,32 @@ class Sampler(nn.Layer):
             _record_logits_diagnostic(logits, tag="post_penalty_logits", probs=probs)
 
         probs = min_p_sampling(probs, sampling_metadata.min_p, sampling_metadata.min_p_list)
-        _, next_tokens = top_k_top_p_sampling(
-            probs,
-            sampling_metadata.top_p,
-            sampling_metadata.top_k,
-            sampling_metadata.top_k_list,
-            topp_seed=sampling_metadata.seed,
-        )
+
+        # print("top_p_list: ", sampling_metadata.top_p_list)
+        # print("top_k_list: ", sampling_metadata.top_k_list)
+
+        greedy_next_tokens = paddle.argmax(probs, axis=-1)
+
+        if (
+            sampling_metadata.top_p_list
+            and not all(x <= 0.00001 for x in sampling_metadata.top_p_list)
+            and sampling_metadata.top_k_list
+            and not all(x <= 0.00001 for x in sampling_metadata.top_k_list)
+        ):
+            _, next_tokens = top_k_top_p_sampling(
+                probs,
+                sampling_metadata.top_p,
+                sampling_metadata.top_k,
+                sampling_metadata.top_k_list,
+                topp_seed=sampling_metadata.seed,
+            )
+            next_tokens = paddle.where(
+                sampling_metadata.top_p_list <= 0.00001 and sampling_metadata.top_k_list <= 0.00001,
+                greedy_next_tokens,
+                next_tokens,
+            )
+        else:
+            next_tokens = greedy_next_tokens
 
         logprobs_tensors = (
             None if num_logprobs is None else self.gather_logprobs(raw_logprobs, num_logprobs, token_ids=next_tokens)
